@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Panduan build kernel Redmi Note 10S / POCO M5s (Rosemary) dengan KernelSU Next manual hook dan versi tanpa KernelSU: cleanup, patch, defconfig, build, packing, flash.">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0d1117">
+<title>Dokumentasi Build Kernel Rosemary - KSU &amp; Non-KSU</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%90%A7%3C/text%3E%3C/svg%3E">
+<script>try{var t=localStorage.getItem('docs-theme');if(t)document.documentElement.setAttribute('data-theme',t)}catch(e){}</script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<a class="skip-link" href="#main">Lewati ke konten</a>
+<button type="button" class="menu-toggle" id="menuToggle" aria-label="Buka daftar isi" aria-expanded="false" aria-controls="sidebar">☰</button>
+<div class="overlay" id="overlay"></div>
+
+<div class="container">
+
+  <!-- Sidebar -->
+  <nav class="sidebar" id="sidebar" aria-label="Daftar isi">
+    <div class="sidebar-head">
+      <span class="sidebar-title">Daftar Isi</span>
+      <button type="button" class="theme-toggle" id="themeToggle" aria-label="Ganti tema">◐</button>
+    </div>
+    <label class="sr-only" for="searchBox">Cari di dokumentasi</label>
+    <input type="search" class="search-box" id="searchBox" placeholder="Cari…  (tekan /)" autocomplete="off">
+    <ul id="toc">
+      <li><a href="#intro">Pendahuluan</a></li>
+      <li><a href="#persiapan">Persiapan Awal</a></li>
+      <li><a href="#cleanup">1. Cleanup KernelSU Lama</a></li>
+      <li><a href="#setup-ksu">2. Setup KernelSU Next</a></li>
+      <li><a href="#patch">3. Patch Manual Hook</a></li>
+      <li><a href="#defconfig">4. Konfigurasi Defconfig</a></li>
+      <li><a href="#build">5. Build Kernel</a></li>
+      <li><a href="#packing">6. Packing AnyKernel</a></li>
+      <li><a href="#flash">7. Flash ke HP</a></li>
+      <li><a href="#non-ksu">Build Non-KSU</a></li>
+      <li><a href="#troubleshoot">Troubleshooting</a></li>
+      <li><a href="#cheatsheet">Cheat Sheet</a></li>
+      <li class="no-results" id="noResults" hidden>Tidak ditemukan</li>
+    </ul>
+  </nav>
+
+  <!-- Main Content -->
+  <main id="main">
+
+    <header>
+      <h1>Dokumentasi Build Kernel Rosemary</h1>
+      <p class="subtitle">Redmi Note 10S / POCO M5s (Rosemary) — Kernel 4.14 Vendor-Based</p>
+      <div class="badges">
+        <span class="badge blue">Kernel 4.14</span>
+        <span class="badge purple">KernelSU Next</span>
+        <span class="badge green">Manual Hook</span>
+        <span class="badge">Proton Clang 13</span>
+        <span class="badge">Fedora 44</span>
+      </div>
+    </header>
+
+    <!-- Pendahuluan -->
+    <section id="intro">
+      <h2><span class="num">i</span>Pendahuluan</h2>
+      <p>Dokumentasi ini menjelaskan cara build kernel untuk <strong>Redmi Note 10S / POCO M5s (Rosemary)</strong> dari source code, dengan dua opsi:</p>
+      <ul>
+        <li><strong>Dengan KernelSU Next</strong> — pakai manual hook (tanpa KPROBES)</li>
+        <li><strong>Tanpa KernelSU</strong> — kernel bersih (stock-like)</li>
+      </ul>
+      <div role="note" class="callout warn">
+        <strong>⚠️ Risiko</strong>
+        Flash kernel custom bisa menyebabkan bootloop dan, kalau salah langkah, kehilangan data. Siapkan backup <code>boot.img</code> (lihat bagian 7) dan lakukan dengan risiko sendiri.
+      </div>
+      <div class="table-wrap"><table>
+        <tr><th>Item</th><th>Detail</th></tr>
+        <tr><td>Device</td><td>Redmi Note 10S / POCO M5s (Rosemary)</td></tr>
+        <tr><td>Kernel</td><td>4.14 vendor-based</td></tr>
+        <tr><td>Source</td><td><code>github.com/gabutgadungan/android_kernel_xiaomi_rosemary</code></td></tr>
+        <tr><td>Root Solution</td><td>KernelSU Next (Manual Hook)</td></tr>
+        <tr><td>Branch</td><td><code>zenith-ksu</code></td></tr>
+        <tr><td>KernelSU Next</td><td>branch <code>legacy</code> (catat commit-nya dengan <code>git -C KernelSU-Next log -1 --oneline</code>)</td></tr>
+        <tr><td>Toolchain</td><td>Proton Clang 13 (<code>~/toolchain/proton-clang</code>), sudah diarsipkan upstream dan tidak ada update lagi</td></tr>
+        <tr><td>Host OS</td><td>Fedora 44</td></tr>
+      </table></div>
+    </section>
+
+    <!-- Persiapan -->
+    <section id="persiapan">
+      <h2><span class="num">0</span>Persiapan Awal</h2>
+
+      <h3>0.1 Prasyarat</h3>
+      <ul>
+        <li>Bootloader perangkat sudah <strong>unlocked</strong></li>
+        <li><strong>Custom recovery</strong> (TWRP/OrangeFox), karena ZIP AnyKernel di-flash lewat recovery</li>
+        <li><code>adb</code> dan <code>fastboot</code> di PC: <code>sudo dnf install -y android-tools</code></li>
+        <li>Disk kosong minimal 20 GB dan RAM yang cukup (kalau build berakhir <code>Killed</code>, kurangi <code>-j</code>)</li>
+      </ul>
+
+      <h3>0.2 Clone Source Kernel</h3>
+      <pre><code>cd ~/android
+git clone https://github.com/gabutgadungan/android_kernel_xiaomi_rosemary
+cd android_kernel_xiaomi_rosemary
+git checkout zenith-ksu</code></pre>
+
+      <h3>0.3 Cek Toolchain</h3>
+      <pre><code>ls ~/toolchain/proton-clang/bin/clang
+~/toolchain/proton-clang/bin/clang --version</code></pre>
+      <p>Pastikan Proton Clang 13 tersedia beserta <code>llvm-ar</code>, <code>llvm-nm</code>, <code>ld.lld</code>, dan cross-compiler GCC (<code>aarch64-linux-gnu</code>, <code>arm-linux-gnueabi</code>).</p>
+
+      <h3>0.4 Install Dependencies (Fedora)</h3>
+      <pre><code>sudo dnf install -y git make gcc gcc-c++ flex bison \
+    openssl-devel elfutils-libelf-devel bc perl python3 \
+    zip unzip curl wget ncurses-devel libxml2-devel dwarves</code></pre>
+
+      <h3>0.5 Siapkan AnyKernel3</h3>
+      <p>Lewati langkah ini kalau folder <code>~/android/AnyKernel3-KSU</code> sudah ada dan terkonfigurasi.</p>
+      <pre><code>cd ~/android
+git clone https://github.com/osm0sis/AnyKernel3 AnyKernel3-KSU</code></pre>
+      <p>Lalu edit <code>anykernel.sh</code>: isi <code>kernel.string</code>, atur <code>device.name1=rosemary</code> (sesuaikan dengan codename perangkatmu), dan cek <code>block</code> serta <code>is_slot_device</code> sesuai partisi boot perangkat (nilai <code>auto</code> biasanya cukup).</p>
+    </section>
+
+    <!-- Cleanup -->
+    <section id="cleanup">
+      <h2><span class="num">1</span>Cleanup KernelSU Lama</h2>
+      <p>Jika sebelumnya sudah pernah patch KSU, bersihkan dulu.</p>
+
+      <h3>1.1 Hapus Sisa Patch dari Makefile &amp; Kconfig</h3>
+      <pre><code>cd ~/android/android_kernel_xiaomi_rosemary
+curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s -- --cleanup</code></pre>
+      <p>Kalau script di atas gagal, atau patch lama berasal dari KernelSU-Next, bersihkan manual:</p>
+      <pre><code>sed -i '/kernelsu/d' drivers/Makefile
+sed -i '/drivers\/kernelsu\/Kconfig/d' drivers/Kconfig</code></pre>
+
+      <h3>1.2 Hapus Folder &amp; Symlink Sisa</h3>
+      <pre><code>rm -rf drivers/kernelsu
+rm -rf KernelSU KernelSU-Next
+rm -f fs/*.bak kernel/*.bak</code></pre>
+
+      <h3>1.3 Verifikasi Bersih</h3>
+      <pre><code>grep -ri kernelsu drivers/Makefile drivers/Kconfig
+ls -la drivers/ | grep kernelsu</code></pre>
+      <div role="note" class="callout success">
+        <strong>✅ Berhasil</strong>
+        Kedua perintah harus <strong>tidak menghasilkan output</strong>.
+      </div>
+      <div role="note" class="callout info">
+        <strong>ℹ️ Hook di 5 file tidak ikut terhapus</strong>
+        Cleanup hanya membersihkan Makefile, Kconfig, dan folder. Blok <code>#ifdef CONFIG_KSU</code> yang pernah kamu tambahkan di <code>fs/</code> dan <code>kernel/reboot.c</code> tetap ada. Cek dengan <code>git diff --stat</code> dan jangan patch dua kali (lihat bagian 3.6).
+      </div>
+    </section>
+
+    <!-- Setup KSU -->
+    <section id="setup-ksu">
+      <h2><span class="num">2</span>Setup KernelSU Next</h2>
+
+      <h3>2.1 Setup KernelSU Next (Legacy)</h3>
+      <pre><code>curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy</code></pre>
+      <p>Output yang diharapkan:</p>
+      <ul>
+        <li>Repository cloned</li>
+        <li>Checked out <code>legacy</code></li>
+        <li>Symlink created</li>
+        <li>Modified Makefile</li>
+        <li>Modified Kconfig</li>
+      </ul>
+      <p>Catat versi yang terpasang supaya build bisa direproduksi:</p>
+      <pre><code>git -C KernelSU-Next log -1 --oneline</code></pre>
+      <div role="note" class="callout warn">
+        <strong>⚠️ Script dari internet</strong>
+        <code>curl ... | bash</code> menjalankan script dari branch yang bisa berubah kapan saja. Untuk lebih aman, unduh dulu, baca isinya, baru jalankan:
+      </div>
+      <pre><code>curl -LSso /tmp/ksun-setup.sh "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh"
+less /tmp/ksun-setup.sh
+bash /tmp/ksun-setup.sh legacy</code></pre>
+
+      <h3>2.2 Perbaiki Symlink Jika Perlu</h3>
+      <pre><code>rm -rf drivers/kernelsu
+ln -sf "$(realpath --relative-to="$(pwd)/drivers" "$(pwd)/KernelSU-Next/kernel")" drivers/kernelsu
+ls -la drivers/ | grep kernelsu</code></pre>
+      <p>Output harus <code>lrwxrwxrwx ... kernelsu -&gt; ../KernelSU-Next/kernel</code>.</p>
+
+      <h3>2.3 Verifikasi Kconfig &amp; Makefile</h3>
+      <pre><code>grep -n "kernelsu" drivers/Kconfig drivers/Makefile</code></pre>
+      <p>Harus muncul:</p>
+      <ul>
+        <li><code>source "drivers/kernelsu/Kconfig"</code> di <code>drivers/Kconfig</code></li>
+        <li><code>obj-$(CONFIG_KSU) += kernelsu/</code> di <code>drivers/Makefile</code></li>
+      </ul>
+      <p>Jika Kconfig belum dimodifikasi:</p>
+      <pre><code>sed -i '/^endmenu/i source "drivers/kernelsu/Kconfig"' drivers/Kconfig</code></pre>
+    </section>
+
+    <!-- Patch Manual -->
+    <section id="patch">
+      <h2><span class="num">3</span>Patch Manual Hook (5 File)</h2>
+      <div role="note" class="callout warn">
+        <strong>⚠️ KPROBES Bermasalah di Kernel 4.14 MTK</strong>
+        Gunakan <strong>Manual Hook</strong> sebagai gantinya.
+      </div>
+      <div role="note" class="callout info">
+        <strong>ℹ️ Sesuaikan dengan versi</strong>
+        Daftar hook di bawah mengikuti KernelSU-Next branch <code>legacy</code> pada commit yang kamu catat di langkah 2. Versi lain bisa punya signature berbeda atau butuh hook tambahan (misalnya <code>drivers/input/input.c</code> untuk safe mode). Kalau ragu, cocokkan dengan dokumentasi manual hook resmi.
+      </div>
+
+      <h3>3.1 <code>fs/exec.c</code></h3>
+      <p><strong>Deklarasi extern</strong> di atas <code>do_execve</code>:</p>
+      <pre><code class="language-c">#ifdef CONFIG_KSU
+__attribute__((hot))
+extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
+				void *argv, void *envp, int *flags);
+#endif</code></pre>
+      <p><strong>Hook di <code>do_execve</code>:</strong></p>
+      <pre><code class="language-c">int do_execve(struct filename *filename,
+	const char __user *const __user *__argv,
+	const char __user *const __user *__envp)
+{
+	struct user_arg_ptr argv = { .ptr.native = __argv };
+	struct user_arg_ptr envp = { .ptr.native = __envp };
+#ifdef CONFIG_KSU
+	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
+#endif
+	return do_execveat_common(AT_FDCWD, filename, argv, envp, 0);
+}</code></pre>
+      <p><strong>Hook juga di <code>compat_do_execve</code></strong> (untuk 32-bit support):</p>
+      <pre><code class="language-c">#ifdef CONFIG_KSU // 32-bit ksud and 32-on-64 support
+	ksu_handle_execveat((int *)AT_FDCWD, &filename, &argv, &envp, 0);
+#endif</code></pre>
+
+      <h3>3.2 <code>fs/open.c</code></h3>
+      <p><strong>Deklarasi extern</strong> di atas <code>faccessat</code>:</p>
+      <pre><code class="language-c">#ifdef CONFIG_KSU
+__attribute__((hot))
+extern int ksu_handle_faccessat(int *dfd, const char __user **filename_user,
+				int *mode, int *flags);
+#endif</code></pre>
+      <p><strong>Hook di dalam <code>SYSCALL_DEFINE3(faccessat, ...)</code></strong>, setelah deklarasi variabel:</p>
+      <pre><code class="language-c">#ifdef CONFIG_KSU
+	ksu_handle_faccessat(&dfd, &filename, &mode, NULL);
+#endif</code></pre>
+
+      <h3>3.3 <code>fs/read_write.c</code></h3>
+      <p><strong>Deklarasi extern</strong> di atas <code>SYSCALL_DEFINE3(read, ...)</code>:</p>
+      <pre><code class="language-c">#ifdef CONFIG_KSU
+extern bool ksu_vfs_read_hook __read_mostly;
+extern __attribute__((cold)) int ksu_handle_sys_read(unsigned int fd);
+#endif</code></pre>
+      <p><strong>Hook di dalam <code>SYSCALL_DEFINE3(read, ...)</code>:</strong></p>
+      <pre><code class="language-c">#ifdef CONFIG_KSU
+	if (unlikely(ksu_vfs_read_hook))
+		ksu_handle_sys_read(fd);
+#endif</code></pre>
+      <div role="note" class="callout info">
+        <strong>ℹ️ Catatan</strong>
+        Fungsi <code>ksu_handle_sys_read</code> hanya butuh 1 argumen (<code>fd</code>), bukan 3 seperti versi patch lama.
+      </div>
+
+      <h3>3.4 <code>fs/stat.c</code></h3>
+      <p><strong>Deklarasi extern</strong> di atas <code>SYSCALL_DEFINE4(newfstatat, ...)</code>:</p>
+      <pre><code class="language-c">#ifdef CONFIG_KSU
+__attribute__((hot))
+extern int ksu_handle_stat(int *dfd, const char __user **filename_user,
+				int *flags);
+#endif</code></pre>
+      <p><strong>Hook di dalam <code>SYSCALL_DEFINE4(newfstatat, ...)</code>:</strong></p>
+      <pre><code class="language-c">SYSCALL_DEFINE4(newfstatat, int, dfd, const char __user *, filename,
+		struct stat __user *, statbuf, int, flag)
+{
+	struct kstat stat;
+	int error;
+
+#ifdef CONFIG_KSU
+	ksu_handle_stat(&dfd, &filename, &flag);
+#endif
+
+	error = vfs_fstatat(dfd, filename, &stat, flag);
+	...
+}</code></pre>
+      <div role="note" class="callout danger">
+        <strong>❌ Jangan Letakkan Hook di <code>newfstat</code></strong>
+        Variabel <code>dfd</code>, <code>filename</code>, <code>flag</code> tidak ada di sana.
+      </div>
+
+      <h3>3.5 <code>kernel/reboot.c</code></h3>
+      <p><strong>Deklarasi extern</strong> di atas <code>SYSCALL_DEFINE4(reboot, ...)</code>:</p>
+      <pre><code class="language-c">#ifdef CONFIG_KSU
+extern int ksu_handle_sys_reboot(int magic1, int magic2, unsigned int cmd, void __user **arg);
+#endif</code></pre>
+      <p><strong>Hook di dalam <code>SYSCALL_DEFINE4(reboot, ...)</code>:</strong></p>
+      <pre><code class="language-c">#ifdef CONFIG_KSU
+	ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);
+#endif</code></pre>
+      <div role="note" class="callout warn">
+        <strong>⚠️ Perhatian</strong>
+        Argumen terakhir pakai <code>&amp;arg</code> (by reference), sesuai signature <code>void __user **arg</code>.
+      </div>
+
+      <h3>3.6 Verifikasi Semua Patch</h3>
+      <pre><code>grep -l "ksu" fs/exec.c fs/open.c fs/read_write.c fs/stat.c kernel/reboot.c 2>/dev/null</code></pre>
+      <p>Harus muncul <strong>5 file</strong>. Pastikan tiap file hanya berubah sekali (tidak ada patch ganda):</p>
+      <pre><code>git diff --stat -- fs/exec.c fs/open.c fs/read_write.c fs/stat.c kernel/reboot.c</code></pre>
+    </section>
+
+    <!-- Defconfig -->
+    <section id="defconfig">
+      <h2><span class="num">4</span>Konfigurasi Defconfig</h2>
+
+      <h3>4.1 Bersihkan Duplikasi</h3>
+      <pre><code>sed -i '/CONFIG_KSU/d; /CONFIG_KPROBES/d; /CONFIG_KPROBE_EVENTS/d; /CONFIG_HAVE_KPROBES/d; /CONFIG_HAVE_KPROBE_EVENTS/d; /Pastikan KPROBES/d' arch/arm64/configs/rosemary_defconfig</code></pre>
+
+      <h3>4.2 Tambahkan Konfigurasi Manual Hook</h3>
+      <pre><code>cat >> arch/arm64/configs/rosemary_defconfig &lt;&lt; 'EOF'
+
+# KernelSU Next - Manual Hook (NO KPROBES)
+CONFIG_KSU=y
+CONFIG_KSU_MANUAL_HOOK=y
+# CONFIG_KSU_WITH_KPROBES is not set
+# CONFIG_KPROBES is not set
+# CONFIG_KPROBE_EVENTS is not set
+EOF</code></pre>
+
+      <h3>4.3 Verifikasi Defconfig</h3>
+      <pre><code>grep -i -E "ksu|kprobe" arch/arm64/configs/rosemary_defconfig</code></pre>
+      <p>Harus muncul bersih tanpa duplikasi: tiap opsi hanya satu kali.</p>
+      <div role="note" class="callout info">
+        <strong>ℹ️ Soal <code>CONFIG_HAVE_KPROBES</code></strong>
+        Opsi <code>HAVE_*</code> di-<em>select</em> oleh arsitektur ARM64, jadi tidak bisa dimatikan lewat defconfig dan tetap <code>=y</code> di <code>.config</code>. Itu normal. Yang harus nonaktif hanya <code>CONFIG_KPROBES</code> dan <code>CONFIG_KPROBE_EVENTS</code>.
+      </div>
+      <div role="note" class="callout warn">
+        <strong>⚠️ Defconfig di repo berubah</strong>
+        Langkah ini memodifikasi <code>rosemary_defconfig</code>, jadi <code>git status</code> akan kotor. Cek dengan <code>git diff arch/arm64/configs/rosemary_defconfig</code>.
+      </div>
+    </section>
+
+    <!-- Build -->
+    <section id="build">
+      <h2><span class="num">5</span>Build Kernel</h2>
+
+      <h3>5.1 Bersihkan Output Lama</h3>
+      <pre><code>cd ~/android/android_kernel_xiaomi_rosemary
+rm -rf out out-ksun
+touch .scmversion</code></pre>
+
+      <h3>5.2 Set Environment Toolchain</h3>
+      <p>Set dulu sebelum generate <code>.config</code>, supaya konfigurasi dibuat dengan toolchain yang sama dengan build.</p>
+      <pre><code>export PATH="$HOME/toolchain/proton-clang/bin:$PATH"
+export LD_LIBRARY_PATH="$HOME/toolchain/proton-clang/lib:$LD_LIBRARY_PATH"
+export ARCH=arm64
+export SUBARCH=arm64
+export CROSS_COMPILE="$HOME/toolchain/proton-clang/aarch64-linux-gnu/bin/aarch64-linux-gnu-"
+export CROSS_COMPILE_ARM32="$HOME/toolchain/proton-clang/arm-linux-gnueabi/bin/arm-linux-gnueabi-"
+export LLVM=1
+export LLVM_IAS=1</code></pre>
+      <div role="note" class="callout info">
+        <strong>ℹ️ Soal <code>LLVM=1</code> dan <code>LLVM_IAS=1</code></strong>
+        Kernel 4.14 upstream belum mengenal kedua flag ini (baru diperkenalkan di kernel 5.x), kecuali repo-mu sudah mem-backport-nya. Compiler yang benar-benar dipakai ditentukan oleh <code>CC</code>, <code>HOSTCC</code>, dan <code>HOSTCXX</code> di perintah <code>make</code>. Flag ini tidak berbahaya, tapi jangan diandalkan.
+      </div>
+
+      <h3>5.3 Generate <code>.config</code></h3>
+      <pre><code>make O=out-ksun ARCH=arm64 CC=clang HOSTCC=clang HOSTCXX=clang++ rosemary_defconfig</code></pre>
+      <p>Pastikan muncul:</p>
+      <pre class="output"><code>#
+# configuration written to .config
+#</code></pre>
+      <p>Verifikasi:</p>
+      <pre><code>grep -i -E "ksu|kprobe" out-ksun/.config</code></pre>
+      <p>Yang diharapkan: <code>CONFIG_KSU=y</code>, <code>CONFIG_KSU_MANUAL_HOOK=y</code>, <code># CONFIG_KPROBES is not set</code>, dan <code># CONFIG_KPROBE_EVENTS is not set</code>. <code>CONFIG_HAVE_KPROBES=y</code> itu normal.</p>
+
+      <h3>5.4 Kompilasi Kernel</h3>
+      <pre><code>make O=out-ksun -j$(nproc) \
+    ARCH=arm64 \
+    CC=clang \
+    HOSTCC=clang \
+    HOSTCXX=clang++ \
+    2>&1 | tee build_ksun.log</code></pre>
+      <p><strong>Perkiraan waktu:</strong> 15-40 menit tergantung CPU.</p>
+
+      <h3>5.5 Pantau Progress</h3>
+      <pre><code># Ikuti log secara live (jalankan di terminal kedua)
+tail -f build_ksun.log
+
+# Cari error
+grep -n -E "error:|\*\*\*" build_ksun.log | head</code></pre>
+
+      <h3>5.6 Output Kernel</h3>
+      <p>Jika berhasil:</p>
+      <pre class="output"><code>out-ksun/arch/arm64/boot/Image.gz
+out-ksun/arch/arm64/boot/Image.gz-dtb</code></pre>
+
+      <h3>5.7 Verifikasi KernelSU Ter-compile</h3>
+      <pre><code># Cek objek KSU
+find out-ksun -name "*.o" -path "*kernelsu*" | head -20
+
+# Cek symbol KSU di vmlinux
+nm out-ksun/vmlinux 2>/dev/null | grep -i ksu | head -20
+
+# Cek string KSU di Image
+strings out-ksun/arch/arm64/boot/Image | grep -i -E "kernelsu|ksu_" | head -10</code></pre>
+    </section>
+
+    <!-- Packing -->
+    <section id="packing">
+      <h2><span class="num">6</span>Packing AnyKernel</h2>
+
+      <h3>6.1 Copy Kernel ke Folder AnyKernel</h3>
+      <pre><code>cp out-ksun/arch/arm64/boot/Image.gz-dtb ~/android/AnyKernel3-KSU/</code></pre>
+
+      <h3>6.2 Pack jadi ZIP</h3>
+      <pre><code>cd ~/android/AnyKernel3-KSU
+DATE=$(date +%Y%m%d)
+zip -r9 "Zenith-Rosemary-ksun-${DATE}.zip" * -x "*.zip"</code></pre>
+      <p><code>-x "*.zip"</code> mencegah ZIP hasil build sebelumnya ikut terkemas ke dalam ZIP baru. <code>Image.gz-dtb</code> lama otomatis tertimpa saat <code>cp</code>.</p>
+
+      <h3>6.3 Verifikasi ZIP</h3>
+      <pre><code>ls -la ~/android/AnyKernel3-KSU/Zenith-Rosemary-ksun-*.zip
+unzip -l "$(ls -t ~/android/AnyKernel3-KSU/Zenith-Rosemary-ksun-*.zip | head -1)"</code></pre>
+      <p>Hasil: <code>Zenith-Rosemary-ksun-YYYYMMDD.zip</code>. Di dalamnya harus ada satu <code>Image.gz-dtb</code> dan tidak boleh ada file <code>.zip</code> lain.</p>
+    </section>
+
+    <!-- Flash -->
+    <section id="flash">
+      <h2><span class="num">7</span>Flash ke Perangkat</h2>
+
+      <div role="note" class="callout danger">
+        <strong>⚠️ Backup Dulu!</strong>
+        Simpan <code>boot.img</code> yang sekarang bisa boot dan data penting sebelum flash. Ini jalan keluar kalau terjadi bootloop.
+      </div>
+
+      <h3>7.1 Backup <code>boot.img</code></h3>
+      <p>Cek nama partisi boot dulu (<code>boot</code>, atau <code>boot_a</code>/<code>boot_b</code>), lalu backup. Cara ini butuh root; kalau belum ada root, ekstrak <code>boot.img</code> dari firmware/ROM yang sedang dipakai.</p>
+      <pre><code>adb shell su -c "ls /dev/block/by-name | grep boot"
+adb shell su -c "dd if=/dev/block/by-name/boot of=/sdcard/boot_backup.img"
+adb pull /sdcard/boot_backup.img ~/android/</code></pre>
+
+      <h3>7.2 Transfer ZIP ke HP</h3>
+      <pre><code>adb push ~/android/AnyKernel3-KSU/Zenith-Rosemary-ksun-*.zip /sdcard/</code></pre>
+
+      <h3>7.3 Boot ke Recovery</h3>
+      <p>Matikan HP, lalu tekan <strong>Volume Up + Power</strong> bersamaan.</p>
+
+      <h3>7.4 Bersihkan Sisa Root Lama (Opsional)</h3>
+      <div role="note" class="callout warn">
+        <strong>⚠️ Peringatan</strong>
+        Ini menghapus semua modul dan konfigurasi root lama. Lewati kalau kamu tidak berpindah dari solusi root lain. Di recovery, <code>/data</code> yang terenkripsi mungkin tidak bisa diakses.
+      </div>
+      <pre><code># Dari PC, saat HP ada di recovery
+adb shell "rm -rf /data/adb"</code></pre>
+
+      <h3>7.5 Flash ZIP</h3>
+      <ul>
+        <li>Pilih <strong>Install</strong> → cari <code>Zenith-Rosemary-ksun-*.zip</code></li>
+        <li>Swipe to confirm flash</li>
+        <li>Tunggu sampai selesai</li>
+      </ul>
+
+      <h3>7.6 Reboot System</h3>
+      <p>Pilih <strong>Reboot → System</strong> di recovery. Boot pertama bisa lebih lama dari biasanya, jadi tunggu sekitar 5 menit sebelum memutuskan ada masalah.</p>
+
+      <h3>7.7 Install KernelSU Next Manager</h3>
+      <ul>
+        <li>Download APK dari repo resmi KernelSU Next</li>
+        <li>Install di HP</li>
+        <li>Buka dan cek status</li>
+      </ul>
+
+      <h3>7.8 Verifikasi Root</h3>
+      <pre><code>adb shell su -c id</code></pre>
+      <p>Harus muncul <code>uid=0(root)</code>. Kalau ditolak, buka aplikasi manager dan izinkan akses root untuk <em>Shell</em>.</p>
+    </section>
+
+    <!-- Non-KSU -->
+    <section id="non-ksu">
+      <h2><span class="num">★</span>Build Non-KSU</h2>
+      <p>Kernel tanpa KernelSU. Hook manual di 5 file <strong>tidak perlu dilepas</strong>: semuanya dibungkus <code>#ifdef CONFIG_KSU</code>, jadi tidak ikut ter-compile saat <code>CONFIG_KSU</code> mati. KernelSU dimatikan lewat <code>.config</code> di folder output, jadi defconfig di repo tidak disentuh dan build KSU tetap bisa diulang kapan saja.</p>
+
+      <h3>Cek Defconfig</h3>
+      <pre><code>cd ~/android/android_kernel_xiaomi_rosemary
+git diff arch/arm64/configs/rosemary_defconfig</code></pre>
+      <p>Kalau ada perubahan dari langkah 4 dan kamu ingin hasil yang persis stock (termasuk <code>CONFIG_KPROBES</code> bawaan), batalkan perubahan yang belum di-commit:</p>
+      <pre><code>git checkout -- arch/arm64/configs/rosemary_defconfig</code></pre>
+
+      <h3>Build</h3>
+      <pre><code>export PATH="$HOME/toolchain/proton-clang/bin:$PATH"
+export LD_LIBRARY_PATH="$HOME/toolchain/proton-clang/lib:$LD_LIBRARY_PATH"
+export ARCH=arm64
+export SUBARCH=arm64
+export CROSS_COMPILE="$HOME/toolchain/proton-clang/aarch64-linux-gnu/bin/aarch64-linux-gnu-"
+export CROSS_COMPILE_ARM32="$HOME/toolchain/proton-clang/arm-linux-gnueabi/bin/arm-linux-gnueabi-"
+export LLVM=1
+export LLVM_IAS=1
+
+rm -rf out-nonksu
+make O=out-nonksu ARCH=arm64 CC=clang HOSTCC=clang HOSTCXX=clang++ rosemary_defconfig
+
+# Matikan KSU di .config, lalu rapikan dependensinya
+scripts/config --file out-nonksu/.config -d KSU
+make O=out-nonksu ARCH=arm64 CC=clang HOSTCC=clang HOSTCXX=clang++ olddefconfig
+
+# Harus tidak ada CONFIG_KSU=y
+grep -i ksu out-nonksu/.config
+
+make O=out-nonksu -j$(nproc) \
+    ARCH=arm64 \
+    CC=clang \
+    HOSTCC=clang \
+    HOSTCXX=clang++ \
+    2>&amp;1 | tee build_nonksu.log</code></pre>
+
+      <h3>Packing Non-KSU</h3>
+      <pre><code>cp out-nonksu/arch/arm64/boot/Image.gz-dtb ~/android/AnyKernel3-KSU/
+cd ~/android/AnyKernel3-KSU
+DATE=$(date +%Y%m%d)
+zip -r9 "Zenith-Rosemary-non-${DATE}.zip" * -x "*.zip"</code></pre>
+      <p>Hasil: <code>Zenith-Rosemary-non-YYYYMMDD.zip</code></p>
+    </section>
+
+    <!-- Troubleshooting -->
+    <section id="troubleshoot">
+      <h2><span class="num">!</span>Troubleshooting</h2>
+      <div class="table-wrap"><table>
+        <tr><th>Masalah</th><th>Solusi</th></tr>
+        <tr><td>Bootloop</td><td>Flash backup lewat fastboot: <code>fastboot flash boot boot_backup.img</code> (sesuaikan nama partisi), lalu cek patch manual</td></tr>
+        <tr><td><code>.base64</code> error</td><td>Pastikan <code>HOSTCC=clang</code> ada di perintah <code>make</code>; kalau masih error, tambahkan <code>KBUILD_HOSTCFLAGS="-integrated-as"</code></td></tr>
+        <tr><td><code>ksu_handle_stat</code> undeclared</td><td>Tambahkan deklarasi <code>extern</code> di atas fungsi</td></tr>
+        <tr><td><code>selinux_hide.c</code> error</td><td>Nonaktifkan <code>CONFIG_KSU_SUSFS</code> atau ubah batas versi kernel</td></tr>
+        <tr><td><code>Killed</code> saat build</td><td>Kurangi <code>-j$(nproc)</code> jadi <code>-j4</code></td></tr>
+        <tr><td><code>No space left</code></td><td>Bersihkan disk, butuh min 20 GB</td></tr>
+        <tr><td>KSU tidak terdeteksi</td><td>Cek <code>grep -l "ksu"</code> di 5 file, pastikan semua ter-patch</td></tr>
+        <tr><td><code>CONFIG_HAVE_KPROBES=y</code> muncul di <code>.config</code></td><td>Normal. Opsi itu tidak bisa dimatikan lewat defconfig; yang dicek hanya <code>CONFIG_KPROBES</code></td></tr>
+        <tr><td>Error <em>redefinition</em> / hook ganda</td><td>Patch terpasang dua kali. Cek <code>git diff</code> dan hapus blok <code>#ifdef CONFIG_KSU</code> yang terduplikasi</td></tr>
+        <tr><td>Ada ZIP di dalam ZIP, ukuran membengkak</td><td>Packing tanpa <code>-x "*.zip"</code>. Hapus ZIP lama di folder AnyKernel lalu pack ulang</td></tr>
+        <tr><td><code>su</code> ditolak</td><td>Buka manager KernelSU Next dan izinkan akses root untuk Shell</td></tr>
+      </table></div>
+    </section>
+
+    <!-- Cheat Sheet -->
+    <section id="cheatsheet">
+      <h2><span class="num">§</span>Cheat Sheet</h2>
+      <p>Langkah 1–4 (cleanup, setup KernelSU Next, patch hook, defconfig) cukup dilakukan <strong>sekali</strong>. Setelah itu build, verifikasi config, dan packing bisa dijalankan dengan satu script. <a href="build.sh" download>Unduh <code>build.sh</code></a></p>
+      <pre><code>#!/usr/bin/env bash
+# build.sh - build + packing kernel Rosemary (KernelSU Next / Non-KSU)
+# Pakai : ./build.sh ksu     -&gt; kernel dengan KernelSU Next (manual hook)
+#         ./build.sh nonksu  -&gt; kernel tanpa KernelSU
+# Path bisa diganti lewat environment, contoh: TC=$HOME/clang ./build.sh ksu
+set -euo pipefail
+
+MODE="${1:-}"
+KERNEL_DIR="${KERNEL_DIR:-$HOME/android/android_kernel_xiaomi_rosemary}"
+TC="${TC:-$HOME/toolchain/proton-clang}"
+AK_DIR="${AK_DIR:-$HOME/android/AnyKernel3-KSU}"
+DEFCONFIG="${DEFCONFIG:-rosemary_defconfig}"
+
+case "$MODE" in
+  ksu)    OUT=out-ksun;   TAG=ksun ;;
+  nonksu) OUT=out-nonksu; TAG=non  ;;
+  *) echo "Pakai: $0 ksu|nonksu" &gt;&amp;2; exit 1 ;;
+esac
+
+[ -x "$TC/bin/clang" ] || { echo "Clang tidak ditemukan di $TC/bin" &gt;&amp;2; exit 1; }
+[ -d "$AK_DIR" ]       || { echo "Folder AnyKernel tidak ada: $AK_DIR" &gt;&amp;2; exit 1; }
+
+# Environment harus siap SEBELUM generate .config
+export PATH="$TC/bin:$PATH"
+export LD_LIBRARY_PATH="$TC/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export ARCH=arm64 SUBARCH=arm64
+export CROSS_COMPILE="$TC/aarch64-linux-gnu/bin/aarch64-linux-gnu-"
+export CROSS_COMPILE_ARM32="$TC/arm-linux-gnueabi/bin/arm-linux-gnueabi-"
+export LLVM=1 LLVM_IAS=1
+
+MAKE_ARGS=(O="$OUT" ARCH=arm64 CC=clang HOSTCC=clang HOSTCXX=clang++)
+
+cd "$KERNEL_DIR"
+touch .scmversion
+rm -rf "$OUT"
+
+echo "&gt;&gt; [$MODE] generate .config"
+make "${MAKE_ARGS[@]}" "$DEFCONFIG"
+
+if [ "$MODE" = nonksu ]; then
+  # Matikan KSU lewat .config, defconfig di repo tidak disentuh
+  scripts/config --file "$OUT/.config" -d KSU
+  make "${MAKE_ARGS[@]}" olddefconfig
+  if grep -q '^CONFIG_KSU=y' "$OUT/.config"; then
+    echo "CONFIG_KSU masih aktif, batal." &gt;&amp;2
+    exit 1
+  fi
+else
+  if ! grep -q '^CONFIG_KSU=y' "$OUT/.config"; then
+    echo "CONFIG_KSU tidak aktif di .config, cek langkah 2-4 di dokumentasi." &gt;&amp;2
+    exit 1
+  fi
+  if grep -q '^CONFIG_KPROBES=y' "$OUT/.config"; then
+    echo "PERINGATAN: CONFIG_KPROBES aktif, padahal manual hook seharusnya tanpa KPROBES." &gt;&amp;2
+  fi
+fi
+
+echo "&gt;&gt; [$MODE] compile"
+make "${MAKE_ARGS[@]}" -j"$(nproc)" 2&gt;&amp;1 | tee "build_${TAG}.log"
+
+IMG="$OUT/arch/arm64/boot/Image.gz-dtb"
+[ -f "$IMG" ] || { echo "Build gagal: $IMG tidak ada. Cek build_${TAG}.log" &gt;&amp;2; exit 1; }
+
+echo "&gt;&gt; [$MODE] packing"
+cp "$IMG" "$AK_DIR/"
+ZIP="Zenith-Rosemary-${TAG}-$(date +%Y%m%d).zip"
+cd "$AK_DIR"
+rm -f "$ZIP"
+zip -r9 "$ZIP" * -x "*.zip"
+echo "&gt;&gt; Selesai: $AK_DIR/$ZIP"</code></pre>
+      <p>Cara pakai:</p>
+      <pre><code>chmod +x build.sh
+./build.sh ksu       # kernel + KernelSU Next
+./build.sh nonksu    # kernel tanpa KernelSU</code></pre>
+      <p>Script berhenti dengan pesan jelas kalau toolchain atau folder AnyKernel tidak ada, kalau <code>CONFIG_KSU</code> tidak aktif di mode <code>ksu</code>, atau kalau <code>Image.gz-dtb</code> tidak terbentuk.</p>
+    </section>
+
+    <footer>
+      <p>Dokumentasi Build Kernel Rosemary — KernelSU Next Manual Hook</p>
+      <p>Dibuat untuk komunitas Redmi Note 10S / POCO M5s</p>
+      <p>Terakhir diperbarui 14 Oktober 2026. Gunakan dengan risiko sendiri.</p>
+    </footer>
+
+  </main>
+</div>
+
+<button type="button" class="to-top" id="toTop" aria-label="Kembali ke atas" hidden>↑</button>
+<div class="sr-only" id="live" aria-live="polite"></div>
+
+<script src="script.js"></script>
+
+</body>
+</html>
